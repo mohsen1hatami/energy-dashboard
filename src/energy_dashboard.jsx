@@ -114,6 +114,159 @@ const SCENARIO_META = {
   },
 };
 
+// آدرس زنده بک‌اند FastAPI (Render). با هر قبض تازه، همین آدرس صدا زده می‌شود.
+const API_BASE = "https://energy-backend-n9oe.onrender.com";
+
+function BillUploadPanel() {
+  const [file, setFile] = useState(null);
+  const [peakReduction, setPeakReduction] = useState(10);
+  const [shiftPercent, setShiftPercent] = useState(30);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!file) {
+      setError("اول یک فایل PDF قبض انتخاب کنید.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("peak_reduction_percent", String(peakReduction));
+      form.append("shift_to_offpeak_percent", String(shiftPercent));
+      const res = await fetch(`${API_BASE}/api/tariff/estimate`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || `خطای سرور (${res.status})`);
+      }
+      setResult(await res.json());
+    } catch (err) {
+      setError(
+        err.message === "Failed to fetch"
+          ? "اتصال به سرور برقرار نشد. اگر چند دقیقه از آخرین استفاده گذشته، سرور رایگان خوابیده — یک بار دیگر امتحان کنید (بیدار شدنش ۳۰-۶۰ ثانیه طول می‌کشد)."
+          : err.message
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Panel
+      title="آپلود قبض واقعی خودتان"
+      subtitle="تحلیل زنده روی سرور — فایل شما ذخیره نمی‌شود"
+      icon={Zap}
+      style={{ marginBottom: 16 }}
+    >
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <input
+          type="file"
+          accept="application/pdf"
+          onChange={(e) => setFile(e.target.files?.[0] || null)}
+          style={{
+            color: palette.muted,
+            fontSize: 13,
+            fontFamily: fontSans,
+          }}
+        />
+
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+          <label style={{ fontSize: 12, color: palette.muted, flex: "1 1 200px" }}>
+            حذف مصرف اوج‌بار: {faNum(peakReduction)}٪
+            <input
+              type="range"
+              min={0}
+              max={50}
+              value={peakReduction}
+              onChange={(e) => setPeakReduction(Number(e.target.value))}
+              style={{ width: "100%", marginTop: 6 }}
+            />
+          </label>
+          <label style={{ fontSize: 12, color: palette.muted, flex: "1 1 200px" }}>
+            انتقال باقی‌مانده اوج به کم‌باری: {faNum(shiftPercent)}٪
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={shiftPercent}
+              onChange={(e) => setShiftPercent(Number(e.target.value))}
+              style={{ width: "100%", marginTop: 6 }}
+            />
+          </label>
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            background: loading ? palette.border : palette.accent,
+            color: loading ? palette.muted : "#1a1508",
+            border: "none",
+            borderRadius: 8,
+            padding: "10px 16px",
+            fontSize: 13,
+            fontWeight: 600,
+            fontFamily: fontSans,
+            cursor: loading ? "default" : "pointer",
+            alignSelf: "flex-start",
+          }}
+        >
+          {loading ? "در حال تحلیل… (ممکن است تا ۶۰ ثانیه طول بکشد)" : "تحلیل کن"}
+        </button>
+      </form>
+
+      {error && (
+        <div style={{ marginTop: 14, fontSize: 12, color: palette.danger }}>{error}</div>
+      )}
+
+      {result && (
+        <div
+          style={{
+            marginTop: 16,
+            paddingTop: 14,
+            borderTop: `1px solid ${palette.border}`,
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+          }}
+        >
+          <div style={{ fontSize: 13 }}>
+            {result.subscriber_name} · {result.tariff_title}
+          </div>
+          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 11, color: palette.muted }}>صورتحساب فعلی</div>
+              <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fontMono }}>
+                {millionRial(result.baseline.amount_payable_rial)}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: palette.muted }}>با این اقدامات</div>
+              <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fontMono, color: palette.good }}>
+                {millionRial(result.scenario.amount_payable_rial)}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: palette.muted }}>صرفه‌جویی برآوردی</div>
+              <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fontMono, color: palette.good }}>
+                {faNum(result.estimated_savings_percent, { maximumFractionDigits: 1 })}٪
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function Panel({ title, subtitle, icon: Icon, children, style }) {
   return (
     <div
@@ -335,6 +488,8 @@ export default function EnergyManagementDashboard() {
           })}
         </div>
       </div>
+
+      <BillUploadPanel />
 
       <div
         style={{
