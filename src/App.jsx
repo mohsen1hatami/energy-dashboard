@@ -267,6 +267,139 @@ function BillUploadPanel() {
   );
 }
 
+function BulkBillsPanel() {
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!files.length) {
+      setError("حداقل یک فایل PDF قبض انتخاب کنید (می‌توانید چند فایل را هم‌زمان انتخاب کنید).");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setData(null);
+    try {
+      const form = new FormData();
+      files.forEach((f) => form.append("files", f));
+      const res = await fetch(`${API_BASE}/api/bills/batch`, { method: "POST", body: form });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || `خطای سرور (${res.status})`);
+      }
+      setData(await res.json());
+    } catch (err) {
+      setError(
+        err.message === "Failed to fetch"
+          ? "اتصال برقرار نشد — اگر سرور مدتی بی‌کار بوده، یک بار دیگر امتحان کنید."
+          : err.message
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const chartData = useMemo(() => {
+    if (!data?.bills?.length) return [];
+    return data.bills.map((b, i) => ({
+      label: b.issue_date_jalali || `دوره ${i + 1}`,
+      "مصرف (kWh)": b.total_consumption_kwh || 0,
+      "قابل پرداخت (م.ریال)": Math.round((b.amount_payable_rial || 0) / 1e6),
+    }));
+  }, [data]);
+
+  return (
+    <Panel
+      title="آپلود چند قبض برای تحلیل روند"
+      subtitle="چند فایل PDF از ماه‌های مختلف را با هم انتخاب کنید — روند مصرف و هزینه در طول زمان ساخته می‌شود"
+      icon={Layers}
+      style={{ marginBottom: 16 }}
+    >
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <input
+          type="file"
+          accept="application/pdf"
+          multiple
+          onChange={(e) => setFiles(Array.from(e.target.files || []))}
+          style={{ color: palette.muted, fontSize: 13, fontFamily: fontSans }}
+        />
+        {files.length > 0 && (
+          <div style={{ fontSize: 12, color: palette.muted }}>
+            {faNum(files.length)} فایل انتخاب شد
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            background: loading ? palette.border : palette.accent,
+            color: loading ? palette.muted : "#1a1508",
+            border: "none",
+            borderRadius: 8,
+            padding: "10px 16px",
+            fontSize: 13,
+            fontWeight: 600,
+            fontFamily: fontSans,
+            cursor: loading ? "default" : "pointer",
+            alignSelf: "flex-start",
+          }}
+        >
+          {loading ? "در حال پردازش همه فایل‌ها…" : "تحلیل کن"}
+        </button>
+      </form>
+
+      {error && <div style={{ marginTop: 14, fontSize: 12, color: palette.danger }}>{error}</div>}
+
+      {data && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, color: palette.muted }}>تعداد دوره تشخیص‌داده‌شده</div>
+              <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fontMono }}>
+                {faNum(data.periods_count)}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: palette.muted }}>مجموع مصرف</div>
+              <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fontMono }}>
+                {faNum(data.summary.total_consumption_kwh)} kWh
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: palette.muted }}>میانگین صورتحساب ماهانه</div>
+              <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fontMono }}>
+                {millionRial(data.summary.avg_monthly_payable_rial)}
+              </div>
+            </div>
+          </div>
+
+          {chartData.length > 1 && (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={chartData}>
+                <CartesianGrid stroke={palette.grid} vertical={false} />
+                <XAxis dataKey="label" stroke={palette.muted} fontSize={10} />
+                <YAxis stroke={palette.muted} fontSize={10} />
+                <Tooltip {...chartTooltipStyle} />
+                <Bar dataKey="قابل پرداخت (م.ریال)" fill={palette.accent} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+
+          {data.errors?.length > 0 && (
+            <div style={{ marginTop: 12, fontSize: 12, color: palette.danger }}>
+              {data.errors.length} فایل با خطا مواجه شد:{" "}
+              {data.errors.map((e) => e.filename).join("، ")}
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function Panel({ title, subtitle, icon: Icon, children, style }) {
   return (
     <div
@@ -490,6 +623,7 @@ export default function EnergyManagementDashboard() {
       </div>
 
       <BillUploadPanel />
+      <BulkBillsPanel />
 
       <div
         style={{
