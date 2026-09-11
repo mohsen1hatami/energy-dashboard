@@ -400,6 +400,143 @@ function BulkBillsPanel() {
   );
 }
 
+function PqUploadPanel() {
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!file) {
+      setError("اول یک فایل CSV یا Excel انتخاب کنید.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setData(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API_BASE}/api/pq/analyze`, { method: "POST", body: form });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || `خطای سرور (${res.status})`);
+      }
+      setData(await res.json());
+    } catch (err) {
+      setError(
+        err.message === "Failed to fetch"
+          ? "اتصال برقرار نشد — اگر سرور مدتی بی‌کار بوده، یک بار دیگر امتحان کنید."
+          : err.message
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const chartData = useMemo(() => {
+    if (!data?.series?.length) return [];
+    return data.series.map((r, i) => ({ ...r, label: i + 1 }));
+  }, [data]);
+
+  return (
+    <Panel
+      title="آپلود داده کیفیت توان (CSV/Excel)"
+      subtitle="خروجی کنتور هوشمند خودتان را بدهید — تحلیل بر مبنای آستانه‌های مهندسی، بدون نیاز به ماه‌ها داده"
+      icon={Activity}
+      style={{ marginBottom: 16 }}
+    >
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <input
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          onChange={(e) => setFile(e.target.files?.[0] || null)}
+          style={{ color: palette.muted, fontSize: 13, fontFamily: fontSans }}
+        />
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            background: loading ? palette.border : palette.accent,
+            color: loading ? palette.muted : "#1a1508",
+            border: "none",
+            borderRadius: 8,
+            padding: "10px 16px",
+            fontSize: 13,
+            fontWeight: 600,
+            fontFamily: fontSans,
+            cursor: loading ? "default" : "pointer",
+            alignSelf: "flex-start",
+          }}
+        >
+          {loading ? "در حال تحلیل…" : "تحلیل کن"}
+        </button>
+      </form>
+
+      {error && <div style={{ marginTop: 14, fontSize: 12, color: palette.danger }}>{error}</div>}
+
+      {data && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, color: palette.muted }}>تعداد ردیف</div>
+              <div style={{ fontSize: 16, fontWeight: 700, fontFamily: fontMono }}>{faNum(data.summary.row_count)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: palette.muted }}>میانگین ضریب قدرت</div>
+              <div style={{ fontSize: 16, fontWeight: 700, fontFamily: fontMono }}>
+                {faNum(data.summary.avg_power_factor, { maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: palette.muted }}>میانگین THD</div>
+              <div style={{ fontSize: 16, fontWeight: 700, fontFamily: fontMono }}>
+                {faNum(data.summary.avg_thd_percent, { maximumFractionDigits: 1 })}٪
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: palette.muted }}>اوج مصرف</div>
+              <div style={{ fontSize: 16, fontWeight: 700, fontFamily: fontMono }}>
+                {faNum(data.summary.peak_active_power_kw)} kW
+              </div>
+            </div>
+          </div>
+
+          {chartData.length > 1 && (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={chartData}>
+                <CartesianGrid stroke={palette.grid} vertical={false} />
+                <XAxis dataKey="label" stroke={palette.muted} fontSize={10} />
+                <YAxis yAxisId="pf" domain={[0.6, 1]} stroke={palette.muted} fontSize={10} />
+                <YAxis yAxisId="thd" orientation="right" domain={[0, 12]} stroke={palette.muted} fontSize={10} />
+                <Tooltip {...chartTooltipStyle} />
+                <ReferenceLine yAxisId="pf" y={0.9} stroke={palette.danger} strokeDasharray="3 3" />
+                <Line yAxisId="pf" type="monotone" dataKey="power_factor" stroke={palette.good} strokeWidth={2} dot={false} name="ضریب قدرت" />
+                <Line yAxisId="thd" type="monotone" dataKey="thd_percent" stroke={palette.accent} strokeWidth={2} dot={false} name="THD %" />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+
+          {data.flags?.length > 0 ? (
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+              {data.flags.map((f, i) => (
+                <div key={i} style={{ fontSize: 12, color: palette.danger }}>
+                  ⚠ {f.type}: {f.detail}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ marginTop: 12, fontSize: 12, color: palette.good }}>
+              هیچ انحراف قابل‌توجهی از آستانه‌های استاندارد پیدا نشد.
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function Panel({ title, subtitle, icon: Icon, children, style }) {
   return (
     <div
@@ -623,6 +760,7 @@ export default function EnergyManagementDashboard() {
       </div>
 
       <BillUploadPanel />
+      <PqUploadPanel />
       <BulkBillsPanel />
 
       <div
